@@ -231,12 +231,28 @@ function App() {
 
   const fetchConversations = async () => {
     try {
-      const response = await fetch('/api/conversations');
-      if (!response.ok) throw new Error('Failed to fetch conversations');
+      const response = await fetch('/api/conversations', {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new TypeError("Oops, we haven't got JSON!");
+      }
+      
       const data = await response.json();
-      setConversations(data.conversations);
+      setConversations(data.conversations || []);
     } catch (error) {
       console.error('Error fetching conversations:', error);
+      setConversations([]);
     }
   };
 

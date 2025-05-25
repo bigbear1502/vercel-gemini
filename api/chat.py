@@ -176,14 +176,20 @@ def debug_info():
         return {"error": str(e)}, 500
 
 # Endpoint to get all conversations
-@app.get("/conversations")
-def get_all_conversations():
+@app.get("/api/conversations")
+async def get_all_conversations():
     try:
         conversations = get_conversations()
-        return {"conversations": conversations}
+        return {
+            "conversations": conversations,
+            "status": "success"
+        }
     except Exception as e:
-        print(f"Error getting conversations: {str(e)}")
-        return {"error": str(e)}, 500
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+            headers={"Content-Type": "application/json"}
+        )
 
 # Endpoint to get a specific conversation
 @app.get("/conversations/{conversation_id}")
