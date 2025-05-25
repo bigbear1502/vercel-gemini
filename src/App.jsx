@@ -245,11 +245,12 @@ function App() {
       
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
-        throw new TypeError("Oops, we haven't got JSON!");
+        console.error('Invalid content type:', contentType);
+        throw new TypeError("Server returned non-JSON response");
       }
       
       const data = await response.json();
-      if (data.status === 'success' && Array.isArray(data.conversations)) {
+      if (data && data.status === 'success' && Array.isArray(data.conversations)) {
         setConversations(data.conversations);
       } else {
         console.error('Unexpected response format:', data);

@@ -155,9 +155,17 @@ async def health_check():
 async def get_all_conversations():
     try:
         conversations = await get_conversations()
-        return {"status": "success", "conversations": conversations}
+        return {
+            "status": "success",
+            "conversations": conversations or []
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error in get_all_conversations: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+            headers={"Content-Type": "application/json"}
+        )
 
 @app.get("/api/conversations/{conversation_id}")
 async def get_conversation_endpoint(conversation_id: str):
