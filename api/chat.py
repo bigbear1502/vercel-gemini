@@ -66,7 +66,7 @@ class Conversation(BaseModel):
     updated_at: str
 
 # Helper function to generate response
-def generate_response(messages: List[Message], model_name: str = "gemini-pro") -> str:
+def generate_response(messages: List[Message], model_name: str = "gemini-2.0-flash") -> str:
     try:
         model = genai.GenerativeModel(model_name)
         chat = model.start_chat(history=[])
