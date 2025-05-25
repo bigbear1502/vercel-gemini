@@ -1,0 +1,56 @@
+[
+  {
+    "id": "bdca33fd-45e6-4e36-9b88-e5206e1b7be2",
+    "title": "Hi",
+    "created_at": "2025-05-25T22:34:12.184568",
+    "updated_at": "2025-05-25T22:34:12.184617",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hi",
+        "timestamp": "2025-05-25T22:34:12.184627"
+      },
+      {
+        "role": "assistant",
+        "content": "Hi there! How can I help you today?\n",
+        "timestamp": "2025-05-25T22:34:14.181907"
+      }
+    ]
+  },
+  {
+    "id": "008389da-b823-4beb-ae85-f07402928d0f",
+    "title": "My name is Lee",
+    "created_at": "2025-05-25T22:34:36.298118",
+    "updated_at": "2025-05-25T22:34:36.298128",
+    "messages": [
+      {
+        "role": "user",
+        "content": "My name is Lee",
+        "timestamp": "2025-05-25T22:34:36.298135"
+      },
+      {
+        "role": "assistant",
+        "content": "Okay, Lee! It's nice to meet you (or to have this information if we've already interacted). How can I help you today?\n",
+        "timestamp": "2025-05-25T22:34:38.560120"
+      }
+    ]
+  },
+  {
+    "id": "f075d556-7706-4c26-84ee-1b2978568597",
+    "title": "What is my name ?",
+    "created_at": "2025-05-25T22:34:55.895940",
+    "updated_at": "2025-05-25T22:34:55.895949",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is my name ?",
+        "timestamp": "2025-05-25T22:34:55.895956"
+      },
+      {
+        "role": "assistant",
+        "content": "As an AI, I don't know your name. I don't have access to personal information about you. You haven't told me your name.\n",
+        "timestamp": "2025-05-25T22:34:58.281559"
+      }
+    ]
+  }
+]
