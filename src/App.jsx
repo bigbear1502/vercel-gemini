@@ -302,6 +302,9 @@ function App() {
     const userMessage = input.trim();
     setInput('');
 
+    // Add user message immediately
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -321,12 +324,23 @@ function App() {
       }
 
       const data = await response.json();
+      
+      // Add AI response to messages
+      if (data.response) {
+        setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+      }
+
       if (data.conversation_id) {
         setCurrentConversationId(data.conversation_id);
         await fetchConversations(); // Refresh conversations list
       }
     } catch (error) {
       console.error('Error sending message:', error);
+      // Add error message
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Sorry, there was an error processing your request. Please try again.' 
+      }]);
     } finally {
       setIsLoading(false);
     }

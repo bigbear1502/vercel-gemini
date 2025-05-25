@@ -1,257 +1,205 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import List, Optional
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
-import json
 import uuid
 from datetime import datetime
-import re
+from .redis_client import (
+    get_conversations,
+    save_conversation,
+    delete_conversation,
+    delete_all_conversations,
+    get_conversation
+)
 
 # Load environment variables
 load_dotenv()
 
+# Configure Google API
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
+    raise ValueError("GOOGLE_API_KEY environment variable is not set")
+
+genai.configure(api_key=GOOGLE_API_KEY)
+
+# Initialize FastAPI app
 app = FastAPI()
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with your frontend domain
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Explicitly list allowed methods
-    allow_headers=["*"],  # Allows all headers
-    expose_headers=["*"]  # Exposes all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Configure the Gemini API
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-if not GOOGLE_API_KEY:
-    raise ValueError("No GOOGLE_API_KEY found in environment variables")
-
-# Configure the generative AI model
-genai.configure(api_key=GOOGLE_API_KEY)
-
-# List of models to try in order of preference
-AVAILABLE_MODELS = [
-    'gemini-2.0-flash',  # Fastest, good for most use cases
-    'gemini-1.5-pro',    # More capable but slower
-    'gemini-1.0-pro'     # Fallback option
+# Available models
+MODELS = [
+    "gemini-pro",
+    "gemini-pro-vision"
 ]
 
-# File to store conversations
-CONVERSATIONS_FILE = "conversations.json"
+# Pydantic models
+class Message(BaseModel):
+    role: str
+    content: str
 
 class ChatRequest(BaseModel):
     message: str
-    conversation_id: str = None
+    conversation_id: Optional[str] = None
+    model: str = "gemini-pro"
 
 class ChatResponse(BaseModel):
     response: str
     conversation_id: str
 
-def get_conversations():
-    if os.path.exists(CONVERSATIONS_FILE):
-        try:
-            with open(CONVERSATIONS_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            return []
-    return []
+class Conversation(BaseModel):
+    id: str
+    title: str
+    messages: List[Message]
+    created_at: str
+    updated_at: str
 
-def save_conversations(conversations):
-    with open(CONVERSATIONS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(conversations, f, ensure_ascii=False, indent=2)
-
-# Get available models for debugging
-@app.get("/models")
-def list_models():
+# Helper function to generate response
+def generate_response(messages: List[Message], model_name: str = "gemini-pro") -> str:
     try:
-        available_models = genai.list_models()
-        model_names = [model.name for model in available_models]
-        return {"available_models": model_names}
-    except Exception as e:
-        return {"error": str(e)}, 500
-
-def get_available_model():
-    """Try to get an available model that hasn't hit rate limits."""
-    for model_name in AVAILABLE_MODELS:
-        try:
-            model = genai.GenerativeModel(model_name)
-            # Test the model with a simple prompt
-            model.generate_content("test")
-            return model
-        except Exception as e:
-            print(f"Model {model_name} not available: {str(e)}")
-            continue
-    raise Exception("No available models found. Please try again later.")
-
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
-    try:
-        user_message = request.message
-        conversation_id = request.conversation_id
+        model = genai.GenerativeModel(model_name)
+        chat = model.start_chat(history=[])
         
-        # Get existing conversations
-        conversations = get_conversations()
+        for msg in messages:
+            if msg.role == "user":
+                chat.send_message(msg.content)
+            else:
+                # Add assistant messages to history
+                chat.history.append({"role": "model", "parts": [msg.content]})
         
-        # Create a new conversation if none exists
-        if not conversation_id:
-            conversation_id = str(uuid.uuid4())
-            new_conversation = {
-                'id': conversation_id,
-                'title': user_message[:30] + '...' if len(user_message) > 30 else user_message,
-                'created_at': datetime.now().isoformat(),
-                'updated_at': datetime.now().isoformat(),
-                'messages': []
-            }
-            conversations.append(new_conversation)
-        else:
-            # Find existing conversation
-            conversation = next((conv for conv in conversations if conv['id'] == conversation_id), None)
-            if not conversation:
-                raise HTTPException(status_code=404, detail="Conversation not found")
-            conversation['updated_at'] = datetime.now().isoformat()
-        
-        # Add user message
-        current_conversation = next((conv for conv in conversations if conv['id'] == conversation_id), None)
-        current_conversation['messages'].append({
-            'role': 'user',
-            'content': user_message,
-            'timestamp': datetime.now().isoformat()
-        })
-        
-        try:
-            # Try to get an available model
-            model = get_available_model()
-            response = model.generate_content(user_message)
-            response_text = response.text
-        except Exception as e:
-            print(f"Error generating response: {str(e)}")
-            response_text = "I apologize, but I'm currently experiencing high demand. Please try again in a few moments."
-        
-        # Add AI response
-        current_conversation['messages'].append({
-            'role': 'assistant',
-            'content': response_text,
-            'timestamp': datetime.now().isoformat()
-        })
-        
-        # Save updated conversations
-        save_conversations(conversations)
-        
-        return ChatResponse(
-            response=response_text,
-            conversation_id=conversation_id
-        )
-        
+        response = chat.last.text
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}, 200
+@app.get("/api/models")
+async def list_models():
+    return {"models": MODELS}
 
-@app.get("/debug")
-def debug_info():
+@app.post("/api/chat")
+async def chat_endpoint(request: ChatRequest):
     try:
-        # Check if API key is set
-        api_key_status = "Set" if GOOGLE_API_KEY else "Not set"
-        
-        # Try to validate API key (this doesn't make an actual model call)
-        api_key_valid = "Unknown"
-        try:
-            # Just check if we can get the models list
-            _ = genai.list_models()
-            api_key_valid = "Valid"
-        except Exception as e:
-            api_key_valid = f"Invalid: {str(e)}"
-        
-        return {
-            "api_key_status": api_key_status,
-            "api_key_valid": api_key_valid,
-            "google_ai_package_version": genai.__version__
-        }
-    except Exception as e:
-        return {"error": str(e)}, 500
+        # Get or create conversation
+        if request.conversation_id:
+            current_conversation = await get_conversation(request.conversation_id)
+            if not current_conversation:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+        else:
+            current_conversation = {
+                "id": str(uuid.uuid4()),
+                "title": request.message[:30] + "..." if len(request.message) > 30 else request.message,
+                "messages": [],
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat()
+            }
 
-# Endpoint to get all conversations
+        # Add user message
+        current_conversation["messages"].append({
+            "role": "user",
+            "content": request.message
+        })
+
+        try:
+            # Generate response
+            response = generate_response(current_conversation["messages"], request.model)
+
+            # Add assistant message
+            current_conversation["messages"].append({
+                "role": "assistant",
+                "content": response
+            })
+
+            # Update timestamp
+            current_conversation["updated_at"] = datetime.now().isoformat()
+
+            # Save conversation
+            await save_conversation(current_conversation)
+
+            return {
+                "status": "success",
+                "response": response,
+                "conversation_id": current_conversation["id"]
+            }
+
+        except Exception as e:
+            print(f"Error generating response: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error generating response: {str(e)}"
+            )
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error: {str(e)}"
+        )
+
+@app.get("/api/health")
+async def health_check():
+    return {"status": "healthy"}
+
 @app.get("/api/conversations")
 async def get_all_conversations():
     try:
-        conversations = get_conversations()
-        return {
-            "conversations": conversations,
-            "status": "success"
-        }
+        conversations = await get_conversations()
+        return {"status": "success", "conversations": conversations}
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e),
-            headers={"Content-Type": "application/json"}
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Endpoint to get a specific conversation
-@app.get("/conversations/{conversation_id}")
-def get_conversation(conversation_id: str):
+@app.get("/api/conversations/{conversation_id}")
+async def get_conversation_endpoint(conversation_id: str):
     try:
-        conversations = get_conversations()
-        conversation = next((conv for conv in conversations if conv['id'] == conversation_id), None)
-        
+        conversation = await get_conversation(conversation_id)
         if not conversation:
-            return {"error": "Conversation not found"}, 404
-        
+            raise HTTPException(status_code=404, detail="Conversation not found")
         return conversation
     except Exception as e:
-        print(f"Error getting conversation: {str(e)}")
-        return {"error": str(e)}, 500
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Endpoint to delete a conversation
-@app.delete("/conversations/{conversation_id}")
-def delete_conversation(conversation_id: str):
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation_endpoint(conversation_id: str):
     try:
-        conversations = get_conversations()
-        conversations = [conv for conv in conversations if conv['id'] != conversation_id]
-        save_conversations(conversations)
-        return {"message": "Conversation deleted successfully"}, 200
+        await delete_conversation(conversation_id)
+        return {"status": "success", "message": "Conversation deleted"}
     except Exception as e:
-        print(f"Error deleting conversation: {str(e)}")
-        return {"error": str(e)}, 500
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Endpoint to delete all conversations
-@app.delete("/conversations")
-def delete_all_conversations():
+@app.delete("/api/conversations")
+async def delete_all_conversations_endpoint():
     try:
-        save_conversations([])
-        return {"message": "All conversations deleted successfully"}, 200
+        await delete_all_conversations()
+        return {"status": "success", "message": "All conversations deleted"}
     except Exception as e:
-        print(f"Error deleting all conversations: {str(e)}")
-        return {"error": str(e)}, 500
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Endpoint to update conversation title
-@app.put("/conversations/{conversation_id}/title")
-def update_conversation_title(conversation_id: str):
+@app.put("/api/conversations/{conversation_id}/title")
+async def update_conversation_title(conversation_id: str, title: str):
     try:
-        data = request.get_json()
-        if not data or 'title' not in data:
-            return {"error": "No title provided"}, 400
-        
-        conversations = get_conversations()
-        conversation = next((conv for conv in conversations if conv['id'] == conversation_id), None)
-        
+        conversation = await get_conversation(conversation_id)
         if not conversation:
-            return {"error": "Conversation not found"}, 404
+            raise HTTPException(status_code=404, detail="Conversation not found")
         
-        conversation['title'] = data['title']
-        save_conversations(conversations)
+        conversation["title"] = title
+        conversation["updated_at"] = datetime.now().isoformat()
         
-        return {"success": True}
+        await save_conversation(conversation)
+        return {"status": "success", "message": "Title updated"}
     except Exception as e:
-        print(f"Error updating conversation title: {str(e)}")
-        return {"error": str(e)}, 500
-
-def handler(request):
-    return app(request)
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000) 
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=5000) 
