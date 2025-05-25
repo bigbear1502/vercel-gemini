@@ -39,8 +39,9 @@ app.add_middleware(
 
 # Available models
 MODELS = [
-    "gemini-pro",
-    "gemini-pro-vision"
+    'gemini-2.0-flash',  # Fastest, good for most use cases
+    'gemini-1.5-pro',    # More capable but slower
+    'gemini-1.0-pro'     # Fallback option
 ]
 
 # Pydantic models
