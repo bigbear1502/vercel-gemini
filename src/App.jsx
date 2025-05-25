@@ -249,7 +249,12 @@ function App() {
       }
       
       const data = await response.json();
-      setConversations(data.conversations || []);
+      if (data.status === 'success' && Array.isArray(data.conversations)) {
+        setConversations(data.conversations);
+      } else {
+        console.error('Unexpected response format:', data);
+        setConversations([]);
+      }
     } catch (error) {
       console.error('Error fetching conversations:', error);
       setConversations([]);
@@ -258,13 +263,25 @@ function App() {
 
   const loadConversation = async (conversationId) => {
     try {
-      const response = await fetch(`/api/conversations/${conversationId}`);
-      if (!response.ok) throw new Error('Failed to fetch conversation');
-      const data = await response.json();
-      setMessages(data.messages);
+      const response = await fetch(`/api/conversations/${conversationId}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const conversation = await response.json();
+      setMessages(conversation.messages || []);
       setCurrentConversationId(conversationId);
     } catch (error) {
       console.error('Error loading conversation:', error);
+      setMessages([]);
+      setCurrentConversationId(null);
     }
   };
 
@@ -279,53 +296,37 @@ function App() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || isLoading) return;
 
-    const userMessage = input;
-    setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
+    const userMessage = input.trim();
+    setInput('');
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           message: userMessage,
-          conversationId: currentConversationId
-        }),
+          conversation_id: currentConversationId,
+          model: 'gemini-pro'
+        })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to send message');
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      
-      // Update conversation ID if it's a new conversation
-      if (data.conversationId && !currentConversationId) {
-        setCurrentConversationId(data.conversationId);
-        // Add the new conversation to the list
-        setConversations(prev => [...prev, {
-          id: data.conversationId,
-          title: userMessage.substring(0, 30) + '...',
-          lastMessage: userMessage
-        }]);
+      if (data.conversation_id) {
+        setCurrentConversationId(data.conversation_id);
+        await fetchConversations(); // Refresh conversations list
       }
-
-      // Add the AI response to messages
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: data.response 
-      }]);
     } catch (error) {
-      console.error('Error:', error);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: 'Sorry, there was an error processing your request.' 
-      }]);
+      console.error('Error sending message:', error);
     } finally {
       setIsLoading(false);
     }
@@ -335,18 +336,21 @@ function App() {
     try {
       const response = await fetch(`/api/conversations/${conversationId}`, {
         method: 'DELETE',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
       });
-      
-      if (!response.ok) throw new Error('Failed to delete conversation');
-      
-      // If we deleted the current conversation, clear the chat
-      if (conversationId === currentConversationId) {
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      await fetchConversations();
+      if (currentConversationId === conversationId) {
         setMessages([]);
         setCurrentConversationId(null);
       }
-      
-      // Refresh conversations list
-      fetchConversations();
     } catch (error) {
       console.error('Error deleting conversation:', error);
     }
@@ -356,16 +360,19 @@ function App() {
     try {
       const response = await fetch('/api/conversations', {
         method: 'DELETE',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
       });
-      
-      if (!response.ok) throw new Error('Failed to delete all conversations');
-      
-      // Clear current chat
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      setConversations([]);
       setMessages([]);
       setCurrentConversationId(null);
-      
-      // Refresh conversations list
-      fetchConversations();
       setShowDeleteConfirm(false);
     } catch (error) {
       console.error('Error deleting all conversations:', error);
