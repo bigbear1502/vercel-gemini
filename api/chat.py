@@ -152,6 +152,16 @@ async def chat_endpoint(request: ChatRequest):
 async def health_check():
     return {"status": "healthy"}
 
+@app.get("/api/redis-health")
+async def redis_health():
+    try:
+        # Test Redis connection
+        await redis_client.ping()
+        return {"status": "ok", "message": "Redis connection successful"}
+    except Exception as e:
+        print(f"Redis health check failed: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/conversations")
 async def get_all_conversations():
     try:
