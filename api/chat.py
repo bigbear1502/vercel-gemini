@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import google.generativeai as genai
@@ -14,7 +15,6 @@ from .redis_client import (
     delete_all_conversations,
     get_conversation
 )
-from fastapi.responses import JSONResponse
 
 # Load environment variables
 load_dotenv()
@@ -196,7 +196,10 @@ async def get_all_conversations():
                 "status": "success",
                 "conversations": conversations or []
             },
-            headers={"Content-Type": "application/json"}
+            headers={
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*"
+            }
         )
     except Exception as e:
         print(f"Error in get_all_conversations: {str(e)}")
@@ -206,7 +209,10 @@ async def get_all_conversations():
                 "status": "error",
                 "message": str(e)
             },
-            headers={"Content-Type": "application/json"}
+            headers={
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*"
+            }
         )
 
 @app.get("/api/conversations/{conversation_id}")
