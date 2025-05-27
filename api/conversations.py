@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from .redis_client import get_conversations
+import json
 
 app = FastAPI()
 
@@ -17,12 +18,32 @@ app.add_middleware(
 @app.get("/")
 async def get_all_conversations():
     try:
+        print("Fetching conversations from Redis...")
         conversations = await get_conversations()
+        print(f"Found {len(conversations) if conversations else 0} conversations")
+        
+        # Ensure conversations is a list
+        if conversations is None:
+            conversations = []
+            
+        # Convert any non-serializable objects to strings
+        for conv in conversations:
+            if 'messages' in conv:
+                for msg in conv['messages']:
+                    if isinstance(msg, dict):
+                        for key, value in msg.items():
+                            if not isinstance(value, (str, int, float, bool, type(None))):
+                                msg[key] = str(value)
+        
+        response = {
+            "status": "success",
+            "conversations": conversations
+        }
+        
+        print(f"Returning response: {json.dumps(response)[:200]}...")  # Log first 200 chars
+        
         return JSONResponse(
-            content={
-                "status": "success",
-                "conversations": conversations or []
-            },
+            content=response,
             headers={
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*"
