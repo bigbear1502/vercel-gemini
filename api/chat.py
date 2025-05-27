@@ -38,8 +38,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Available models
-MODELS = [
+# List of models to try in order of preference
+AVAILABLE_MODELS = [
     'gemini-2.0-flash',  # Fastest, good for most use cases
     'gemini-1.5-pro',    # More capable but slower
     'gemini-1.0-pro'     # Fallback option
@@ -49,11 +49,11 @@ MODELS = [
 class Message(BaseModel):
     role: str
     content: str
+    timestamp: Optional[str] = None
 
 class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[str] = None
-    model: str = "gemini-2.0-flash"
 
 class ChatResponse(BaseModel):
     response: str
@@ -66,112 +66,92 @@ class Conversation(BaseModel):
     created_at: str
     updated_at: str
 
-# Helper function to generate response
-def generate_response(messages: List[Message], model_name: str = "gemini-2.0-flash") -> str:
-    try:
-        model = genai.GenerativeModel(model_name)
-        chat = model.start_chat(history=[])
-        
-        for msg in messages:
-            if msg.role == "user":
-                chat.send_message(msg.content)
-            else:
-                # Add assistant messages to history
-                chat.history.append({"role": "model", "parts": [msg.content]})
-        
-        response = chat.last.text
-        return response
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+def get_available_model():
+    """Try to get an available model that hasn't hit rate limits."""
+    for model_name in AVAILABLE_MODELS:
+        try:
+            model = genai.GenerativeModel(model_name)
+            # Test the model with a simple prompt
+            model.generate_content("test")
+            return model
+        except Exception as e:
+            print(f"Model {model_name} not available: {str(e)}")
+            continue
+    raise Exception("No available models found. Please try again later.")
 
 @app.get("/api/models")
 async def list_models():
-    return {"models": MODELS}
-
-@app.post("/api/chat")
-async def chat_endpoint(request: ChatRequest):
     try:
-        print(f"Received chat request: {request}")
-        
-        # Validate model
-        if request.model not in MODELS:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "status": "error",
-                    "message": f"Invalid model. Available models: {MODELS}"
-                }
-            )
-
-        # Get or create conversation
-        if request.conversation_id:
-            current_conversation = await get_conversation(request.conversation_id)
-            if not current_conversation:
-                return JSONResponse(
-                    status_code=404,
-                    content={
-                        "status": "error",
-                        "message": "Conversation not found"
-                    }
-                )
-        else:
-            current_conversation = {
-                "id": str(uuid.uuid4()),
-                "title": request.message[:30] + "..." if len(request.message) > 30 else request.message,
-                "messages": [],
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat()
-            }
-
-        # Add user message
-        current_conversation["messages"].append({
-            "role": "user",
-            "content": request.message
-        })
-
-        try:
-            # Generate response
-            response = generate_response(current_conversation["messages"], request.model)
-
-            # Add assistant message
-            current_conversation["messages"].append({
-                "role": "assistant",
-                "content": response
-            })
-
-            # Update timestamp
-            current_conversation["updated_at"] = datetime.now().isoformat()
-
-            # Save conversation
-            await save_conversation(current_conversation)
-
-            return JSONResponse(
-                content={
-                    "status": "success",
-                    "response": response,
-                    "conversation_id": current_conversation["id"]
-                }
-            )
-
-        except Exception as e:
-            print(f"Error generating response: {str(e)}")
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "status": "error",
-                    "message": f"Error generating response: {str(e)}"
-                }
-            )
-
+        available_models = genai.list_models()
+        model_names = [model.name for model in available_models]
+        return {"available_models": model_names}
     except Exception as e:
-        print(f"Unexpected error: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={
-                "status": "error",
-                "message": f"Unexpected error: {str(e)}"
-            }
+            content={"error": str(e)}
         )
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_endpoint(request: ChatRequest):
+    try:
+        user_message = request.message
+        conversation_id = request.conversation_id
+        
+        # Get existing conversations
+        conversations = await get_conversations()
+        
+        # Create a new conversation if none exists
+        if not conversation_id:
+            conversation_id = str(uuid.uuid4())
+            new_conversation = {
+                'id': conversation_id,
+                'title': user_message[:30] + '...' if len(user_message) > 30 else user_message,
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat(),
+                'messages': []
+            }
+            conversations.append(new_conversation)
+        else:
+            # Find existing conversation
+            conversation = next((conv for conv in conversations if conv['id'] == conversation_id), None)
+            if not conversation:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+            conversation['updated_at'] = datetime.now().isoformat()
+        
+        # Add user message
+        current_conversation = next((conv for conv in conversations if conv['id'] == conversation_id), None)
+        current_conversation['messages'].append({
+            'role': 'user',
+            'content': user_message,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+        try:
+            # Try to get an available model
+            model = get_available_model()
+            response = model.generate_content(user_message)
+            response_text = response.text
+        except Exception as e:
+            print(f"Error generating response: {str(e)}")
+            response_text = "I apologize, but I'm currently experiencing high demand. Please try again in a few moments."
+        
+        # Add AI response
+        current_conversation['messages'].append({
+            'role': 'assistant',
+            'content': response_text,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+        # Save updated conversations
+        await save_conversation(current_conversation)
+        
+        return ChatResponse(
+            response=response_text,
+            conversation_id=conversation_id
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/health")
 async def health_check():

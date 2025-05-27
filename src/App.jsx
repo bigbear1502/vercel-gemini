@@ -315,8 +315,7 @@ function App() {
         },
         body: JSON.stringify({
           message: userMessage,
-          conversation_id: currentConversationId,
-          model: 'gemini-pro'
+          conversation_id: currentConversationId
         })
       });
 
