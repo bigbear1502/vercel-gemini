@@ -27,29 +27,26 @@ except Exception as e:
 async def get_conversations():
     """Get all conversations from Redis"""
     try:
-        # Test Redis connection
-        await redis_client.ping()
-        
+        # Get all conversation keys
         keys = await redis_client.keys("conversation:*")
+        if not keys:
+            return []
+            
+        # Get all conversations
         conversations = []
         for key in keys:
             try:
                 data = await redis_client.get(key)
                 if data:
                     conversation = json.loads(data)
-                    if isinstance(conversation, dict) and 'id' in conversation:
-                        conversations.append(conversation)
+                    conversations.append(conversation)
             except json.JSONDecodeError as e:
-                print(f"Error decoding conversation data for key {key}: {str(e)}")
+                print(f"Error decoding conversation {key}: {str(e)}")
                 continue
-            except Exception as e:
-                print(f"Error processing conversation {key}: {str(e)}")
-                continue
-        
-        return sorted(conversations, key=lambda x: x.get('updated_at', ''), reverse=True)
-    except redis.ConnectionError as e:
-        print(f"Redis connection error: {str(e)}")
-        return []
+                
+        # Sort conversations by updated_at in descending order
+        conversations.sort(key=lambda x: x.get('updated_at', 0), reverse=True)
+        return conversations
     except Exception as e:
         print(f"Error getting conversations: {str(e)}")
         return []

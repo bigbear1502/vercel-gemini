@@ -14,6 +14,7 @@ from .redis_client import (
     delete_all_conversations,
     get_conversation
 )
+from fastapi.responses import JSONResponse
 
 # Load environment variables
 load_dotenv()
@@ -52,7 +53,7 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[str] = None
-    model: str = "gemini-pro"
+    model: str = "gemini-2.0-flash"
 
 class ChatResponse(BaseModel):
     response: str
@@ -90,11 +91,29 @@ async def list_models():
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
     try:
+        print(f"Received chat request: {request}")
+        
+        # Validate model
+        if request.model not in MODELS:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": f"Invalid model. Available models: {MODELS}"
+                }
+            )
+
         # Get or create conversation
         if request.conversation_id:
             current_conversation = await get_conversation(request.conversation_id)
             if not current_conversation:
-                raise HTTPException(status_code=404, detail="Conversation not found")
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "status": "error",
+                        "message": "Conversation not found"
+                    }
+                )
         else:
             current_conversation = {
                 "id": str(uuid.uuid4()),
@@ -126,26 +145,32 @@ async def chat_endpoint(request: ChatRequest):
             # Save conversation
             await save_conversation(current_conversation)
 
-            return {
-                "status": "success",
-                "response": response,
-                "conversation_id": current_conversation["id"]
-            }
+            return JSONResponse(
+                content={
+                    "status": "success",
+                    "response": response,
+                    "conversation_id": current_conversation["id"]
+                }
+            )
 
         except Exception as e:
             print(f"Error generating response: {str(e)}")
-            raise HTTPException(
+            return JSONResponse(
                 status_code=500,
-                detail=f"Error generating response: {str(e)}"
+                content={
+                    "status": "error",
+                    "message": f"Error generating response: {str(e)}"
+                }
             )
 
-    except HTTPException as he:
-        raise he
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
-        raise HTTPException(
+        return JSONResponse(
             status_code=500,
-            detail=f"Unexpected error: {str(e)}"
+            content={
+                "status": "error",
+                "message": f"Unexpected error: {str(e)}"
+            }
         )
 
 @app.get("/api/health")
@@ -166,15 +191,21 @@ async def redis_health():
 async def get_all_conversations():
     try:
         conversations = await get_conversations()
-        return {
-            "status": "success",
-            "conversations": conversations or []
-        }
+        return JSONResponse(
+            content={
+                "status": "success",
+                "conversations": conversations or []
+            },
+            headers={"Content-Type": "application/json"}
+        )
     except Exception as e:
         print(f"Error in get_all_conversations: {str(e)}")
-        raise HTTPException(
+        return JSONResponse(
             status_code=500,
-            detail=str(e),
+            content={
+                "status": "error",
+                "message": str(e)
+            },
             headers={"Content-Type": "application/json"}
         )
 
