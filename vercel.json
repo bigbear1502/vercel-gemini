@@ -13,22 +13,22 @@
       }
     }
   ],
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/conversations",
-      "dest": "/api/conversations.py"
+      "source": "/api/conversations",
+      "destination": "/api/conversations.py"
     },
     {
-      "src": "/api/conversations/health",
-      "dest": "/api/conversations.py"
+      "source": "/api/conversations/health",
+      "destination": "/api/conversations.py"
     },
     {
-      "src": "/api/(.*)",
-      "dest": "/api/$1.py"
+      "source": "/api/(.*)",
+      "destination": "/api/$1.py"
     },
     {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ],
   "headers": [

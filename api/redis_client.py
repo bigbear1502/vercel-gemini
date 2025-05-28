@@ -3,6 +3,7 @@ import os
 import json
 from dotenv import load_dotenv
 import logging
+import traceback
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -12,7 +13,10 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Get Redis connection details from environment variables
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")  # Default to local Redis if not set
+REDIS_URL = os.getenv("REDIS_URL")
+if not REDIS_URL:
+    logger.error("REDIS_URL environment variable is not set!")
+    raise ValueError("REDIS_URL environment variable is required")
 
 logger.info(f"Attempting to connect to Redis at {REDIS_URL.split('@')[-1]}")  # Log only the host part for security
 
@@ -28,7 +32,7 @@ try:
     )
     logger.info("Successfully initialized Redis client")
 except Exception as e:
-    logger.error(f"Error connecting to Redis: {str(e)}")
+    logger.error(f"Error connecting to Redis: {str(e)}\n{traceback.format_exc()}")
     raise
 
 # Helper functions for Redis operations
@@ -37,11 +41,20 @@ async def get_conversations():
     try:
         logger.info("Getting all conversation keys from Redis...")
         # Test Redis connection first
-        await redis_client.ping()
+        try:
+            await redis_client.ping()
+            logger.info("Successfully pinged Redis")
+        except Exception as e:
+            logger.error(f"Failed to ping Redis: {str(e)}\n{traceback.format_exc()}")
+            raise
         
         # Get all conversation keys
-        keys = await redis_client.keys("conversation:*")
-        logger.info(f"Found {len(keys)} conversation keys")
+        try:
+            keys = await redis_client.keys("conversation:*")
+            logger.info(f"Found {len(keys)} conversation keys")
+        except Exception as e:
+            logger.error(f"Failed to get conversation keys: {str(e)}\n{traceback.format_exc()}")
+            raise
         
         if not keys:
             logger.info("No conversations found in Redis")
@@ -54,17 +67,18 @@ async def get_conversations():
                 logger.info(f"Fetching conversation from key: {key}")
                 data = await redis_client.get(key)
                 if data:
-                    conversation = json.loads(data)
-                    # Validate conversation structure
-                    if isinstance(conversation, dict) and 'id' in conversation:
-                        conversations.append(conversation)
-                    else:
-                        logger.warning(f"Invalid conversation structure for key {key}")
-            except json.JSONDecodeError as e:
-                logger.error(f"Error decoding conversation {key}: {str(e)}")
-                continue
+                    try:
+                        conversation = json.loads(data)
+                        # Validate conversation structure
+                        if isinstance(conversation, dict) and 'id' in conversation:
+                            conversations.append(conversation)
+                        else:
+                            logger.warning(f"Invalid conversation structure for key {key}")
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Error decoding conversation {key}: {str(e)}\n{traceback.format_exc()}")
+                        continue
             except Exception as e:
-                logger.error(f"Error processing conversation {key}: {str(e)}")
+                logger.error(f"Error processing conversation {key}: {str(e)}\n{traceback.format_exc()}")
                 continue
                 
         # Sort conversations by updated_at in descending order
@@ -72,10 +86,10 @@ async def get_conversations():
         logger.info(f"Successfully retrieved {len(conversations)} conversations")
         return conversations
     except redis.ConnectionError as e:
-        logger.error(f"Redis connection error: {str(e)}")
+        logger.error(f"Redis connection error: {str(e)}\n{traceback.format_exc()}")
         raise
     except Exception as e:
-        logger.error(f"Error getting conversations: {str(e)}")
+        logger.error(f"Error getting conversations: {str(e)}\n{traceback.format_exc()}")
         return []
 
 async def save_conversation(conversation):

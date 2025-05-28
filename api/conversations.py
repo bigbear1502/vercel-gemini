@@ -5,6 +5,7 @@ from redis_client import get_conversations
 import json
 import logging
 import os
+import traceback
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,27 +25,55 @@ app.add_middleware(
 @app.get("/")
 async def root():
     """Root endpoint to verify API is working"""
-    return {"message": "Conversations API is running"}
+    try:
+        return {"message": "Conversations API is running"}
+    except Exception as e:
+        logger.error(f"Error in root endpoint: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/conversations")
 async def get_all_conversations():
     try:
         logger.info("Received request to fetch conversations")
-        conversations = await get_conversations()
-        logger.info(f"Found {len(conversations) if conversations else 0} conversations")
+        
+        # Check Redis connection
+        try:
+            conversations = await get_conversations()
+            logger.info(f"Found {len(conversations) if conversations else 0} conversations")
+        except Exception as e:
+            logger.error(f"Failed to get conversations from Redis: {str(e)}\n{traceback.format_exc()}")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "error",
+                    "message": "Failed to connect to Redis",
+                    "details": str(e)
+                }
+            )
         
         # Ensure conversations is a list
         if conversations is None:
             conversations = []
             
         # Convert any non-serializable objects to strings
-        for conv in conversations:
-            if 'messages' in conv:
-                for msg in conv['messages']:
-                    if isinstance(msg, dict):
-                        for key, value in msg.items():
-                            if not isinstance(value, (str, int, float, bool, type(None))):
-                                msg[key] = str(value)
+        try:
+            for conv in conversations:
+                if 'messages' in conv:
+                    for msg in conv['messages']:
+                        if isinstance(msg, dict):
+                            for key, value in msg.items():
+                                if not isinstance(value, (str, int, float, bool, type(None))):
+                                    msg[key] = str(value)
+        except Exception as e:
+            logger.error(f"Error processing conversation data: {str(e)}\n{traceback.format_exc()}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": "Error processing conversation data",
+                    "details": str(e)
+                }
+            )
         
         response = {
             "status": "success",
@@ -61,17 +90,13 @@ async def get_all_conversations():
             }
         )
     except Exception as e:
-        logger.error(f"Error in get_all_conversations: {str(e)}", exc_info=True)
+        logger.error(f"Error in get_all_conversations: {str(e)}\n{traceback.format_exc()}")
         return JSONResponse(
             status_code=500,
             content={
                 "status": "error",
                 "message": "Internal server error while fetching conversations",
                 "details": str(e)
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
             }
         )
 
@@ -80,16 +105,23 @@ async def health_check():
     """Health check endpoint to verify API and Redis connectivity"""
     try:
         # Try to get conversations to test Redis connection
-        await get_conversations()
+        try:
+            await get_conversations()
+            redis_status = "connected"
+        except Exception as e:
+            logger.error(f"Redis connection failed: {str(e)}\n{traceback.format_exc()}")
+            redis_status = "disconnected"
+            
         return JSONResponse(
             content={
-                "status": "healthy",
-                "message": "API and Redis connection are working",
+                "status": "healthy" if redis_status == "connected" else "unhealthy",
+                "message": "API is running",
+                "redis_status": redis_status,
                 "redis_url": os.getenv("REDIS_URL", "not set").split("@")[-1]  # Only show host part
             }
         )
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}", exc_info=True)
+        logger.error(f"Health check failed: {str(e)}\n{traceback.format_exc()}")
         return JSONResponse(
             status_code=503,
             content={
