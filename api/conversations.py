@@ -3,6 +3,11 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from .redis_client import get_conversations
 import json
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -18,9 +23,9 @@ app.add_middleware(
 @app.get("/")
 async def get_all_conversations():
     try:
-        print("Fetching conversations from Redis...")
+        logger.info("Received request to fetch conversations")
         conversations = await get_conversations()
-        print(f"Found {len(conversations) if conversations else 0} conversations")
+        logger.info(f"Found {len(conversations) if conversations else 0} conversations")
         
         # Ensure conversations is a list
         if conversations is None:
@@ -40,7 +45,7 @@ async def get_all_conversations():
             "conversations": conversations
         }
         
-        print(f"Returning response: {json.dumps(response)[:200]}...")  # Log first 200 chars
+        logger.info(f"Returning response with {len(conversations)} conversations")
         
         return JSONResponse(
             content=response,
@@ -50,15 +55,39 @@ async def get_all_conversations():
             }
         )
     except Exception as e:
-        print(f"Error in get_all_conversations: {str(e)}")
+        logger.error(f"Error in get_all_conversations: {str(e)}", exc_info=True)
         return JSONResponse(
             status_code=500,
             content={
                 "status": "error",
-                "message": str(e)
+                "message": "Internal server error while fetching conversations",
+                "details": str(e)
             },
             headers={
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*"
+            }
+        )
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint to verify API and Redis connectivity"""
+    try:
+        # Try to get conversations to test Redis connection
+        await get_conversations()
+        return JSONResponse(
+            content={
+                "status": "healthy",
+                "message": "API and Redis connection are working"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "message": "Service is not healthy",
+                "details": str(e)
             }
         ) 
