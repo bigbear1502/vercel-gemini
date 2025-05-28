@@ -12,10 +12,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Get Redis connection details from environment variables
-REDIS_URL = os.getenv("REDIS_URL")
-if not REDIS_URL:
-    logger.error("REDIS_URL environment variable is not set")
-    raise ValueError("REDIS_URL environment variable is not set")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")  # Default to local Redis if not set
 
 logger.info(f"Attempting to connect to Redis at {REDIS_URL.split('@')[-1]}")  # Log only the host part for security
 

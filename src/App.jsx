@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import './App.css';
+import ChatMessage from './components/ChatMessage';
+import ConversationList from './components/ConversationList';
+import ChatInput from './components/ChatInput';
 
 // Helper function to format text with Markdown-like structure
 const formatText = (text) => {
@@ -211,85 +214,30 @@ const formatInlineText = (text) => {
 };
 
 function App() {
-  const [input, setInput] = useState('');
-  const [messages, setMessages] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmConfig, setDeleteConfirmConfig] = useState({
+    show: false,
+    conversationId: null,
+    dontShowAgain: false
+  });
+  const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
 
-  // Fetch conversations on component mount
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   useEffect(() => {
     fetchConversations();
   }, []);
 
-  // Auto-scroll to bottom when new messages are added
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const fetchConversations = async () => {
-    try {
-      const response = await fetch('/api/conversations', {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        console.error('Invalid content type:', contentType);
-        throw new TypeError("Server returned non-JSON response");
-      }
-      
-      const data = await response.json();
-      if (data && data.status === 'success' && Array.isArray(data.conversations)) {
-        setConversations(data.conversations);
-      } else {
-        console.error('Unexpected response format:', data);
-        setConversations([]);
-      }
-    } catch (error) {
-      console.error('Error fetching conversations:', error);
-      setConversations([]);
-    }
-  };
-
-  const loadConversation = async (conversationId) => {
-    try {
-      const response = await fetch(`/api/conversations/${conversationId}`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const conversation = await response.json();
-      setMessages(conversation.messages || []);
-      setCurrentConversationId(conversationId);
-    } catch (error) {
-      console.error('Error loading conversation:', error);
-      setMessages([]);
-      setCurrentConversationId(null);
-    }
-  };
-
-  const startNewConversation = () => {
-    setMessages([]);
-    setCurrentConversationId(null);
-  };
+    scrollToBottom();
+  }, [conversations]);
 
   const handleInputChange = (e) => {
     setInput(e.target.value);
@@ -299,50 +247,57 @@ function App() {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    setIsLoading(true);
-    const userMessage = input.trim();
+    const message = input.trim();
     setInput('');
-
-    // Add user message immediately
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setIsLoading(true);
+    setError(null);
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message: userMessage,
-          conversation_id: currentConversationId
-        })
+          message,
+          conversation_id: currentConversationId,
+        }),
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
+      if (!response.ok) throw new Error('Failed to send message');
       
-      // Add AI response to messages
-      if (data.response) {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
-      }
-
-      if (data.conversation_id) {
-        setCurrentConversationId(data.conversation_id);
-        await fetchConversations(); // Refresh conversations list
-      }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      // Add error message
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: 'Sorry, there was an error processing your request. Please try again.' 
-      }]);
+      const data = await response.json();
+      setCurrentConversationId(data.conversation_id);
+      await fetchConversations();
+    } catch (err) {
+      setError('Failed to send message. Please try again later.');
+      console.error('Error sending message:', err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchConversations = async () => {
+    try {
+      const response = await fetch('/api/conversations');
+      if (!response.ok) throw new Error('Failed to fetch conversations');
+      const data = await response.json();
+      setConversations(data.conversations || []);
+    } catch (err) {
+      setError('Failed to load conversations. Please try again later.');
+      console.error('Error fetching conversations:', err);
+    }
+  };
+
+  const loadConversation = async (conversationId) => {
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}`);
+      if (!response.ok) throw new Error('Failed to fetch conversation');
+      const data = await response.json();
+      setCurrentConversationId(conversationId);
+    } catch (err) {
+      setError('Failed to load conversation. Please try again later.');
+      console.error('Error loading conversation:', err);
     }
   };
 
@@ -350,106 +305,77 @@ function App() {
     try {
       const response = await fetch(`/api/conversations/${conversationId}`, {
         method: 'DELETE',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      await fetchConversations();
-      if (currentConversationId === conversationId) {
-        setMessages([]);
+      if (!response.ok) throw new Error('Failed to delete conversation');
+      
+      if (conversationId === currentConversationId) {
         setCurrentConversationId(null);
       }
-    } catch (error) {
-      console.error('Error deleting conversation:', error);
+      await fetchConversations();
+    } catch (err) {
+      setError('Failed to delete conversation. Please try again later.');
+      console.error('Error deleting conversation:', err);
     }
   };
 
   const deleteAllConversations = async () => {
+    if (!window.confirm('Are you sure you want to delete all conversations?')) return;
+
     try {
       const response = await fetch('/api/conversations', {
         method: 'DELETE',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      setConversations([]);
-      setMessages([]);
+      if (!response.ok) throw new Error('Failed to delete all conversations');
+      
       setCurrentConversationId(null);
-      setShowDeleteConfirm(false);
-    } catch (error) {
-      console.error('Error deleting all conversations:', error);
+      await fetchConversations();
+    } catch (err) {
+      setError('Failed to delete all conversations. Please try again later.');
+      console.error('Error deleting all conversations:', err);
     }
   };
 
+  const handleDeleteClick = (conversationId) => {
+    const dontShowAgain = localStorage.getItem('dontShowDeleteConfirm') === 'true';
+    if (dontShowAgain) {
+      deleteConversation(conversationId);
+    } else {
+      setDeleteConfirmConfig({
+        show: true,
+        conversationId,
+        dontShowAgain: false
+      });
+    }
+  };
+
+  const handleDeleteConfirm = () => {
+    if (deleteConfirmConfig.dontShowAgain) {
+      localStorage.setItem('dontShowDeleteConfirm', 'true');
+    }
+    deleteConversation(deleteConfirmConfig.conversationId);
+    setDeleteConfirmConfig({ show: false, conversationId: null, dontShowAgain: false });
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteConfirmConfig({ show: false, conversationId: null, dontShowAgain: false });
+  };
+
+  const currentConversation = conversations.find(
+    (conv) => conv.id === currentConversationId
+  ) || { messages: [] };
+
   return (
     <div className="app-container">
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <h2>Chat History</h2>
-          <div className="sidebar-actions">
-            <button 
-              onClick={startNewConversation} 
-              className="new-chat-btn"
-              title="Start new chat"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              New Chat
-            </button>
-            <button 
-              onClick={() => setShowDeleteConfirm(true)} 
-              className="delete-all-btn"
-              title="Delete all conversations"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-              Clear All
-            </button>
-          </div>
-        </div>
-        <div className="conversations-list">
-          {conversations.map((conv) => (
-            <div
-              key={conv.id}
-              className={`conversation-item ${conv.id === currentConversationId ? 'active' : ''}`}
-            >
-              <div 
-                className="conversation-content"
-                onClick={() => loadConversation(conv.id)}
-              >
-                <h3>{conv.title}</h3>
-                <p>{new Date(conv.updated_at).toLocaleDateString()}</p>
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteConversation(conv.id);
-                }}
-                className="delete-btn"
-                title="Delete conversation"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      </aside>
+      <ConversationList
+        conversations={conversations}
+        currentConversationId={currentConversationId}
+        onSelectConversation={loadConversation}
+        onDeleteConversation={handleDeleteClick}
+        onDeleteAllConversations={deleteAllConversations}
+        setShowDeleteConfirm={setShowDeleteConfirm}
+      />
 
       {showDeleteConfirm && (
         <div className="modal-overlay">
@@ -468,6 +394,35 @@ function App() {
         </div>
       )}
 
+      {deleteConfirmConfig.show && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>Delete Conversation</h3>
+            <p>Are you sure you want to delete this conversation? This action cannot be undone.</p>
+            <div className="modal-checkbox">
+              <input
+                type="checkbox"
+                id="dontShowAgain"
+                checked={deleteConfirmConfig.dontShowAgain}
+                onChange={(e) => setDeleteConfirmConfig(prev => ({
+                  ...prev,
+                  dontShowAgain: e.target.checked
+                }))}
+              />
+              <label htmlFor="dontShowAgain">Don't show this message again</label>
+            </div>
+            <div className="modal-actions">
+              <button onClick={handleDeleteConfirm} className="confirm-btn">
+                Delete
+              </button>
+              <button onClick={handleDeleteCancel} className="cancel-btn">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="chat-container">
         <div className="chat-header">
           <div className="logo-container">
@@ -478,8 +433,9 @@ function App() {
           </div>
           <p className="slogan">Your AI-powered conversation partner</p>
         </div>
+
         <div className="chat-messages">
-          {messages.length === 0 ? (
+          {!currentConversationId || currentConversation.messages.length === 0 ? (
             <div className="empty-state">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
@@ -487,7 +443,7 @@ function App() {
               <p>Start a conversation with the AI Assistant</p>
             </div>
           ) : (
-            messages.map((message, index) => (
+            currentConversation.messages.map((message, index) => (
               <div 
                 key={index} 
                 className={`message ${message.role === 'user' ? 'user-message' : 'ai-message'}`}
