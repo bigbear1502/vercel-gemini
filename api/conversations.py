@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .redis_client import get_conversations
 import json
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +22,11 @@ app.add_middleware(
 )
 
 @app.get("/")
+async def root():
+    """Root endpoint to verify API is working"""
+    return {"message": "Conversations API is running"}
+
+@app.get("/api/conversations")
 async def get_all_conversations():
     try:
         logger.info("Received request to fetch conversations")
@@ -69,7 +75,7 @@ async def get_all_conversations():
             }
         )
 
-@app.get("/health")
+@app.get("/api/conversations/health")
 async def health_check():
     """Health check endpoint to verify API and Redis connectivity"""
     try:
@@ -78,7 +84,8 @@ async def health_check():
         return JSONResponse(
             content={
                 "status": "healthy",
-                "message": "API and Redis connection are working"
+                "message": "API and Redis connection are working",
+                "redis_url": os.getenv("REDIS_URL", "not set").split("@")[-1]  # Only show host part
             }
         )
     except Exception as e:
