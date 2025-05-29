@@ -2,7 +2,7 @@ import asyncio
 import uuid
 import argparse
 from datetime import datetime
-from redis_client import save_conversation, delete_all_conversations
+from .redis_client import save_conversation, delete_all_conversations
 
 # Example conversations to seed
 EXAMPLE_CONVERSATIONS = [

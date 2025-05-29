@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 import logging
 import traceback
-from redis_client import (
+from .redis_client import (
     get_conversations,
     save_conversation,
     delete_conversation,

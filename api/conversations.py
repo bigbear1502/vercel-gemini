@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from redis_client import get_conversations
+from .redis_client import get_conversations
 import json
 import logging
 import os
