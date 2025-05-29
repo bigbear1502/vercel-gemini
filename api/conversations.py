@@ -7,6 +7,7 @@ import logging
 import os
 import traceback
 import redis
+import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -128,29 +129,56 @@ async def get_all_conversations():
 async def health_check():
     """Health check endpoint to verify API and Redis connectivity"""
     try:
+        logger.info("Health check endpoint called")
+        
+        # Check if REDIS_URL is set
+        redis_url = os.getenv("REDIS_URL")
+        if not redis_url:
+            logger.error("REDIS_URL environment variable is not set")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "unhealthy",
+                    "message": "REDIS_URL environment variable is not set",
+                    "redis_status": "not_configured",
+                    "redis_url": "not_set"
+                }
+            )
+
         # Try to get conversations to test Redis connection
         try:
+            logger.info("Attempting to connect to Redis...")
             await get_conversations()
             redis_status = "connected"
+            logger.info("Successfully connected to Redis")
+        except redis.ConnectionError as e:
+            logger.error(f"Redis connection error: {str(e)}\n{traceback.format_exc()}")
+            redis_status = "connection_error"
+        except redis.TimeoutError as e:
+            logger.error(f"Redis timeout error: {str(e)}\n{traceback.format_exc()}")
+            redis_status = "timeout_error"
         except Exception as e:
             logger.error(f"Redis connection failed: {str(e)}\n{traceback.format_exc()}")
-            redis_status = "disconnected"
+            redis_status = "error"
             
         return JSONResponse(
             content={
                 "status": "healthy" if redis_status == "connected" else "unhealthy",
                 "message": "API is running",
                 "redis_status": redis_status,
-                "redis_url": os.getenv("REDIS_URL", "not set").split("@")[-1]  # Only show host part
+                "redis_url": redis_url.split("@")[-1] if redis_url else "not_set",  # Only show host part
+                "timestamp": datetime.datetime.utcnow().isoformat()
             }
         )
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}\n{traceback.format_exc()}")
+        logger.error(f"Health check failed with unexpected error: {str(e)}\n{traceback.format_exc()}")
         return JSONResponse(
-            status_code=503,
+            status_code=500,
             content={
                 "status": "unhealthy",
                 "message": "Service is not healthy",
-                "details": str(e)
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "timestamp": datetime.datetime.utcnow().isoformat()
             }
         ) 
