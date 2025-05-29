@@ -25,29 +25,6 @@ if not REDIS_URL:
 
 logger.info(f"Attempting to connect to Redis at {REDIS_URL.split('@')[-1]}")  # Log only the host part for security
 
-# Create a connection pool
-pool = ConnectionPool.from_url(
-    REDIS_URL,
-    decode_responses=True,
-    socket_timeout=10,
-    socket_connect_timeout=10,
-    retry_on_timeout=True,
-    health_check_interval=30,
-    max_connections=10,
-    socket_keepalive=True
-)
-
-# Initialize Redis client with connection pool
-try:
-    redis_client = redis.Redis(connection_pool=pool)
-    logger.info("Successfully initialized Redis client with connection pool")
-except Exception as e:
-    logger.error(f"Error connecting to Redis: {str(e)}\n{traceback.format_exc()}")
-    raise
-
-# Redis connection pool
-redis_pool = None
-
 def get_redis_url() -> str:
     """Get Redis URL from environment variable with validation."""
     redis_url = os.getenv("REDIS_URL")
@@ -62,40 +39,20 @@ def get_redis_url() -> str:
     max_time=30
 )
 async def get_redis_connection() -> redis.Redis:
-    """Get a Redis connection from the pool with retry logic."""
-    global redis_pool
-    
-    if redis_pool is None:
-        try:
-            redis_url = get_redis_url()
-            redis_pool = redis.ConnectionPool.from_url(
-                redis_url,
-                decode_responses=True,
-                max_connections=10,
-                socket_timeout=5,
-                socket_connect_timeout=5,
-                retry_on_timeout=True
-            )
-            logger.info("Redis connection pool created successfully")
-        except Exception as e:
-            logger.error(f"Failed to create Redis connection pool: {str(e)}\n{traceback.format_exc()}")
-            raise
-    
-    try:
-        client = redis.Redis(connection_pool=redis_pool)
-        await client.ping()  # Test the connection
-        return client
-    except Exception as e:
-        logger.error(f"Failed to get Redis connection: {str(e)}\n{traceback.format_exc()}")
-        raise
-
-async def close_redis_pool():
-    """Close the Redis connection pool."""
-    global redis_pool
-    if redis_pool:
-        await redis_pool.disconnect()
-        redis_pool = None
-        logger.info("Redis connection pool closed")
+    """Get a Redis connection from a new pool per request with retry logic."""
+    redis_url = get_redis_url()
+    # Always create a new pool per request to avoid event loop issues
+    pool = ConnectionPool.from_url(
+        redis_url,
+        decode_responses=True,
+        max_connections=10,
+        socket_timeout=5,
+        socket_connect_timeout=5,
+        retry_on_timeout=True
+    )
+    client = redis.Redis(connection_pool=pool)
+    await client.ping()  # Test the connection
+    return client
 
 class RedisError(Exception):
     """Custom exception for Redis operations."""
