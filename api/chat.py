@@ -19,8 +19,8 @@ from .redis_client import (
     RedisError,
     health_check as redis_health_check
 )
-from middleware.rate_limit import rate_limit_middleware
-from middleware.error_handler import error_handler_middleware
+from .middleware.rate_limit import rate_limit_middleware
+from .middleware.error_handler import error_handler_middleware
 
 # Configure logging
 logging.basicConfig(
