@@ -443,48 +443,50 @@ function App() {
               <p>Start a conversation with the AI Assistant</p>
             </div>
           ) : (
-            currentConversation.messages.map((message, index) => (
-              <div 
-                key={index} 
-                className={`message ${message.role === 'user' ? 'user-message' : 'ai-message'}`}
-              >
-                <div className="message-avatar">
-                  {message.role === 'user' ? (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-                      <circle cx="12" cy="7" r="4" />
-                    </svg>
-                  ) : (
+            <>
+              {currentConversation.messages.map((message, index) => (
+                <div 
+                  key={index} 
+                  className={`message ${message.role === 'user' ? 'user-message' : 'ai-message'}`}
+                >
+                  <div className="message-avatar">
+                    {message.role === 'user' ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                        <circle cx="12" cy="7" r="4" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                    )}
+                  </div>
+                  <div className="message-content">
+                    {message.role === 'user' ? (
+                      <p>{message.content}</p>
+                    ) : (
+                      formatText(message.content)
+                    )}
+                  </div>
+                </div>
+              ))}
+              {isLoading && (
+                <div className="message ai-message loading-message">
+                  <div className="message-avatar">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                     </svg>
-                  )}
+                  </div>
+                  <div className="message-content loading-content">
+                    <div className="loading-indicator">
+                      <div className="dot"></div>
+                      <div className="dot"></div>
+                      <div className="dot"></div>
+                    </div>
+                  </div>
                 </div>
-                <div className="message-content">
-                  {message.role === 'user' ? (
-                    <p>{message.content}</p>
-                  ) : (
-                    formatText(message.content)
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-          {isLoading && (
-            <div className="message ai-message">
-              <div className="message-avatar">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <div className="message-content">
-                <div className="loading-indicator">
-                  <div className="dot"></div>
-                  <div className="dot"></div>
-                  <div className="dot"></div>
-                </div>
-              </div>
-            </div>
+              )}
+            </>
           )}
           <div ref={messagesEndRef} />
         </div>

@@ -243,6 +243,18 @@ body {
   gap: 1rem;
   margin-bottom: 1.5rem;
   max-width: 80%;
+  animation: messageSlideIn 0.3s ease;
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .user-message {
@@ -259,6 +271,9 @@ body {
   height: 2rem;
   color: var(--text-secondary);
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .message-avatar svg {
@@ -272,10 +287,14 @@ body {
   border-radius: 0.5rem;
   background-color: var(--message-bg-user);
   line-height: 1.5;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: calc(100% - 3rem);
 }
 
 .message-content p {
-  margin: 0.5rem 0;
+  margin: 0;
+  white-space: pre-wrap;
 }
 
 .message-content h3 {
@@ -365,13 +384,30 @@ body {
   display: flex;
   gap: 0.5rem;
   justify-content: center;
-  padding: 1rem;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.5rem;
+}
+
+.loading-message {
+  opacity: 0.8;
+}
+
+.loading-content {
+  min-width: 4rem;
+  min-height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--message-bg-ai);
+  border: 1px solid var(--border-color);
+  border-radius: 1rem 1rem 1rem 0;
 }
 
 .dot {
   width: 0.5rem;
   height: 0.5rem;
-  background-color: var(--text-secondary);
+  background-color: var(--primary-color);
   border-radius: 50%;
   animation: bounce 1.4s infinite ease-in-out;
 }
@@ -380,8 +416,14 @@ body {
 .dot:nth-child(2) { animation-delay: -0.16s; }
 
 @keyframes bounce {
-  0%, 80%, 100% { transform: scale(0); }
-  40% { transform: scale(1); }
+  0%, 80%, 100% { 
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  40% { 
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 /* Chat Input */
