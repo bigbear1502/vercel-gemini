@@ -15,19 +15,31 @@
   ],
   "rewrites": [
     {
-      "source": "/api/conversations",
-      "destination": "/api/conversations.py"
+      "source": "/api/conversations/:id",
+      "destination": "/api/chat.py"
     },
     {
       "source": "/api/conversations/health",
       "destination": "/api/conversations.py"
     },
     {
+      "source": "/api/conversations",
+      "destination": "/api/conversations.py"
+    },
+    {
+      "source": "/api/chat",
+      "destination": "/api/chat.py"
+    },
+    {
+      "source": "/api/health",
+      "destination": "/api/chat.py"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1.py"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ],
