@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
 import google.generativeai as genai
 import os
@@ -71,7 +71,8 @@ class Message(BaseModel):
     content: str = Field(..., description="The content of the message")
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
-    @validator('role')
+    @field_validator('role')
+    @classmethod
     def validate_role(cls, v):
         if v not in ['user', 'assistant', 'system']:
             raise ValueError('Role must be user, assistant, or system')
@@ -81,7 +82,8 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000, description="The user's message")
     conversation_id: Optional[str] = Field(None, description="The ID of the existing conversation")
 
-    @validator('message')
+    @field_validator('message')
+    @classmethod
     def validate_message(cls, v):
         if not v.strip():
             raise ValueError('Message cannot be empty or whitespace')
@@ -99,7 +101,8 @@ class Conversation(BaseModel):
     created_at: str = Field(..., description="The creation timestamp")
     updated_at: str = Field(..., description="The last update timestamp")
 
-    @validator('messages')
+    @field_validator('messages')
+    @classmethod
     def validate_messages(cls, v):
         if not isinstance(v, list):
             raise ValueError('Messages must be a list')
@@ -136,9 +139,8 @@ async def chat_endpoint(request: ChatRequest):
                 if not conversation:
                     raise HTTPException(status_code=404, detail="Conversation not found")
             else:
-                conversation_id = str(uuid.uuid4())
                 conversation = {
-                    'id': conversation_id,
+                    'id': None,
                     'title': user_message[:30] + '...' if len(user_message) > 30 else user_message,
                     'created_at': datetime.now().isoformat(),
                     'updated_at': datetime.now().isoformat(),
@@ -240,35 +242,6 @@ async def health_check():
             "error": str(e),
             "error_type": type(e).__name__
         }
-
-@app.get("/api/conversations", response_model=List[Conversation], responses={500: {"model": ErrorResponse}})
-async def get_all_conversations():
-    """Get all conversations."""
-    try:
-        conversations = await get_conversations()
-        return conversations or []
-    except RedisError as e:
-        logger.error(f"Redis error while getting conversations: {str(e)}")
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "status": "error",
-                "message": "Failed to fetch conversations",
-                "details": str(e),
-                "error_type": "storage_error"
-            }
-        )
-    except Exception as e:
-        logger.error(f"Unexpected error in get_all_conversations: {str(e)}\n{traceback.format_exc()}")
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "status": "error",
-                "message": "An unexpected error occurred",
-                "details": str(e),
-                "error_type": type(e).__name__
-            }
-        )
 
 @app.get("/api/conversations/{conversation_id}", response_model=Conversation, responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
 async def get_conversation_endpoint(conversation_id: str):
