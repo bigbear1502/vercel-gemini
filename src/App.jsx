@@ -281,23 +281,31 @@ function App() {
     try {
       const response = await fetch('/api/conversations');
       if (!response.ok) throw new Error('Failed to fetch conversations');
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new SyntaxError("API returned non-JSON (HTML)");
+      }
       const data = await response.json();
       setConversations(data.conversations || []);
     } catch (err) {
-      setError('Failed to load conversations. Please try again later.');
-      console.error('Error fetching conversations:', err);
+      console.error("Error fetching conversations:", err);
+      setConversations([]);
     }
   };
 
   const loadConversation = async (conversationId) => {
     try {
       const response = await fetch(`/api/conversations/${conversationId}`);
-      if (!response.ok) throw new Error('Failed to fetch conversation');
+      if (!response.ok) throw new Error("Failed to fetch conversation");
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new SyntaxError("API returned non-JSON (HTML)");
+      }
       const data = await response.json();
       setCurrentConversationId(conversationId);
     } catch (err) {
-      setError('Failed to load conversation. Please try again later.');
-      console.error('Error loading conversation:', err);
+      console.error("Error loading conversation:", err);
+      setCurrentConversationId(null);
     }
   };
 
