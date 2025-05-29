@@ -14,6 +14,10 @@ RATE_LIMIT_WINDOW = 60  # 1 minute window
 MAX_REQUESTS_PER_WINDOW = 60  # 60 requests per minute
 RATE_LIMIT_KEY_PREFIX = "rate_limit:"
 
+# Cache for rate limit info to reduce Redis calls
+_rate_limit_cache: Dict[str, Tuple[int, int]] = {}  # client_id -> (count, expiry)
+_cache_ttl = 5  # seconds to cache rate limit info
+
 class RateLimitExceeded(Exception):
     """Exception raised when rate limit is exceeded."""
     pass
@@ -30,42 +34,45 @@ async def get_client_identifier(request: Request) -> str:
     
     return f"{client_ip}"
 
-async def check_rate_limit(client_id: str) -> Tuple[bool, int]:
-    """Check if the client has exceeded the rate limit."""
+async def check_rate_limit(client_id: str) -> Tuple[bool, int, int]:
+    """Check if the client has exceeded the rate limit. Returns (allowed, remaining, ttl)."""
+    current_time = int(time.time())
+    
+    # Check cache first
+    if client_id in _rate_limit_cache:
+        count, expiry = _rate_limit_cache[client_id]
+        if current_time < expiry:
+            remaining = MAX_REQUESTS_PER_WINDOW - count
+            return count < MAX_REQUESTS_PER_WINDOW, remaining, expiry - current_time
+    
     try:
         client = await get_redis_connection()
         key = f"{RATE_LIMIT_KEY_PREFIX}{client_id}"
         
-        # Get current count and window start
+        # Use a single pipeline for all operations
         pipe = client.pipeline()
         pipe.get(key)
         pipe.ttl(key)
-        count, ttl = await pipe.execute()
+        pipe.incr(key)
+        pipe.expire(key, RATE_LIMIT_WINDOW)
+        count, ttl, new_count, _ = await pipe.execute()
         
-        current_time = int(time.time())
+        # Update cache
+        _rate_limit_cache[client_id] = (new_count, current_time + ttl)
         
-        if count is None:
-            # First request in the window
-            await client.setex(key, RATE_LIMIT_WINDOW, 1)
-            return True, RATE_LIMIT_WINDOW
+        # Clean old cache entries
+        if len(_rate_limit_cache) > 1000:  # Prevent unbounded growth
+            _rate_limit_cache.clear()
         
-        count = int(count)
-        if count >= MAX_REQUESTS_PER_WINDOW:
-            # Rate limit exceeded
-            return False, ttl
-        
-        # Increment counter
-        await client.incr(key)
-        return True, ttl
+        remaining = MAX_REQUESTS_PER_WINDOW - new_count
+        return new_count <= MAX_REQUESTS_PER_WINDOW, remaining, ttl
         
     except RedisError as e:
         logger.error(f"Redis error in rate limit check: {str(e)}")
-        # If Redis is down, allow the request but log the error
-        return True, 0
+        return True, MAX_REQUESTS_PER_WINDOW, 0
     except Exception as e:
         logger.error(f"Error in rate limit check: {str(e)}")
-        # On any other error, allow the request but log the error
-        return True, 0
+        return True, MAX_REQUESTS_PER_WINDOW, 0
 
 async def rate_limit_middleware(request: Request, call_next: Callable):
     """Middleware to implement rate limiting."""
@@ -75,7 +82,7 @@ async def rate_limit_middleware(request: Request, call_next: Callable):
     
     try:
         client_id = await get_client_identifier(request)
-        allowed, ttl = await check_rate_limit(client_id)
+        allowed, remaining, ttl = await check_rate_limit(client_id)
         
         if not allowed:
             logger.warning(f"Rate limit exceeded for client {client_id}")
@@ -95,7 +102,7 @@ async def rate_limit_middleware(request: Request, call_next: Callable):
         # Add rate limit headers to response
         response = await call_next(request)
         response.headers["X-RateLimit-Limit"] = str(MAX_REQUESTS_PER_WINDOW)
-        response.headers["X-RateLimit-Remaining"] = str(MAX_REQUESTS_PER_WINDOW - int(await get_redis_connection().get(f"{RATE_LIMIT_KEY_PREFIX}{client_id}") or 0))
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
         response.headers["X-RateLimit-Reset"] = str(int(time.time()) + ttl)
         return response
         
