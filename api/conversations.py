@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import traceback
+import redis
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +41,28 @@ async def get_all_conversations():
         try:
             conversations = await get_conversations()
             logger.info(f"Found {len(conversations) if conversations else 0} conversations")
+        except redis.ConnectionError as e:
+            logger.error(f"Redis connection error: {str(e)}\n{traceback.format_exc()}")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "error",
+                    "message": "Redis connection error",
+                    "details": str(e),
+                    "type": "connection_error"
+                }
+            )
+        except redis.TimeoutError as e:
+            logger.error(f"Redis timeout error: {str(e)}\n{traceback.format_exc()}")
+            return JSONResponse(
+                status_code=504,
+                content={
+                    "status": "error",
+                    "message": "Redis timeout error",
+                    "details": str(e),
+                    "type": "timeout_error"
+                }
+            )
         except Exception as e:
             logger.error(f"Failed to get conversations from Redis: {str(e)}\n{traceback.format_exc()}")
             return JSONResponse(
@@ -47,7 +70,8 @@ async def get_all_conversations():
                 content={
                     "status": "error",
                     "message": "Failed to connect to Redis",
-                    "details": str(e)
+                    "details": str(e),
+                    "type": "unknown_error"
                 }
             )
         

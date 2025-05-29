@@ -4,6 +4,8 @@ import json
 from dotenv import load_dotenv
 import logging
 import traceback
+from redis.asyncio.connection import ConnectionPool
+import asyncio
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,37 +22,55 @@ if not REDIS_URL:
 
 logger.info(f"Attempting to connect to Redis at {REDIS_URL.split('@')[-1]}")  # Log only the host part for security
 
-# Initialize Redis client
+# Create a connection pool
+pool = ConnectionPool.from_url(
+    REDIS_URL,
+    decode_responses=True,
+    socket_timeout=10,
+    socket_connect_timeout=10,
+    retry_on_timeout=True,
+    health_check_interval=30,
+    max_connections=10,
+    socket_keepalive=True
+)
+
+# Initialize Redis client with connection pool
 try:
-    redis_client = redis.from_url(
-        REDIS_URL,
-        decode_responses=True,
-        socket_timeout=5,
-        socket_connect_timeout=5,
-        retry_on_timeout=True,
-        health_check_interval=30
-    )
-    logger.info("Successfully initialized Redis client")
+    redis_client = redis.Redis(connection_pool=pool)
+    logger.info("Successfully initialized Redis client with connection pool")
 except Exception as e:
     logger.error(f"Error connecting to Redis: {str(e)}\n{traceback.format_exc()}")
     raise
+
+async def get_redis_connection():
+    """Get a Redis connection from the pool with retry logic"""
+    max_retries = 3
+    retry_delay = 1  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            # Test the connection
+            await redis_client.ping()
+            return redis_client
+        except (redis.ConnectionError, redis.TimeoutError) as e:
+            if attempt == max_retries - 1:
+                logger.error(f"Failed to connect to Redis after {max_retries} attempts: {str(e)}")
+                raise
+            logger.warning(f"Redis connection attempt {attempt + 1} failed: {str(e)}")
+            await asyncio.sleep(retry_delay)
+            retry_delay *= 2  # Exponential backoff
 
 # Helper functions for Redis operations
 async def get_conversations():
     """Get all conversations from Redis"""
     try:
         logger.info("Getting all conversation keys from Redis...")
-        # Test Redis connection first
-        try:
-            await redis_client.ping()
-            logger.info("Successfully pinged Redis")
-        except Exception as e:
-            logger.error(f"Failed to ping Redis: {str(e)}\n{traceback.format_exc()}")
-            raise
+        # Get a connection with retry logic
+        client = await get_redis_connection()
         
         # Get all conversation keys
         try:
-            keys = await redis_client.keys("conversation:*")
+            keys = await client.keys("conversation:*")
             logger.info(f"Found {len(keys)} conversation keys")
         except Exception as e:
             logger.error(f"Failed to get conversation keys: {str(e)}\n{traceback.format_exc()}")
@@ -65,7 +85,7 @@ async def get_conversations():
         for key in keys:
             try:
                 logger.info(f"Fetching conversation from key: {key}")
-                data = await redis_client.get(key)
+                data = await client.get(key)
                 if data:
                     try:
                         conversation = json.loads(data)
