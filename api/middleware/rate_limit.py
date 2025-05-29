@@ -1,50 +1,105 @@
-from fastapi import Request, HTTPException
+from fastapi import Request, status
 from fastapi.responses import JSONResponse
 import time
-from typing import Dict, Tuple
+import logging
+from datetime import datetime
+from typing import Dict, Tuple, Callable
 import asyncio
-from redis_client import redis_client
+from redis_client import get_redis_connection, RedisError
 
-class RateLimiter:
-    def __init__(self, requests_per_minute: int = 60):
-        self.requests_per_minute = requests_per_minute
-        self.requests: Dict[str, list] = {}
+logger = logging.getLogger(__name__)
 
-    async def is_rate_limited(self, client_id: str) -> bool:
-        current_time = time.time()
-        window_start = current_time - 60  # 1 minute window
+# Rate limit configuration
+RATE_LIMIT_WINDOW = 60  # 1 minute window
+MAX_REQUESTS_PER_WINDOW = 60  # 60 requests per minute
+RATE_LIMIT_KEY_PREFIX = "rate_limit:"
 
-        # Get existing requests from Redis
-        key = f"rate_limit:{client_id}"
-        requests = await redis_client.lrange(key, 0, -1)
-        requests = [float(r) for r in requests]
+class RateLimitExceeded(Exception):
+    """Exception raised when rate limit is exceeded."""
+    pass
 
-        # Remove old requests
-        requests = [r for r in requests if r > window_start]
+async def get_client_identifier(request: Request) -> str:
+    """Get a unique identifier for the client."""
+    # Try to get the real IP address
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        # Get the first IP in the chain
+        client_ip = forwarded.split(",")[0].strip()
+    else:
+        client_ip = request.client.host if request.client else "unknown"
+    
+    return f"{client_ip}"
 
-        # Check if rate limit is exceeded
-        if len(requests) >= self.requests_per_minute:
-            return True
+async def check_rate_limit(client_id: str) -> Tuple[bool, int]:
+    """Check if the client has exceeded the rate limit."""
+    try:
+        client = await get_redis_connection()
+        key = f"{RATE_LIMIT_KEY_PREFIX}{client_id}"
+        
+        # Get current count and window start
+        pipe = client.pipeline()
+        pipe.get(key)
+        pipe.ttl(key)
+        count, ttl = await pipe.execute()
+        
+        current_time = int(time.time())
+        
+        if count is None:
+            # First request in the window
+            await client.setex(key, RATE_LIMIT_WINDOW, 1)
+            return True, RATE_LIMIT_WINDOW
+        
+        count = int(count)
+        if count >= MAX_REQUESTS_PER_WINDOW:
+            # Rate limit exceeded
+            return False, ttl
+        
+        # Increment counter
+        await client.incr(key)
+        return True, ttl
+        
+    except RedisError as e:
+        logger.error(f"Redis error in rate limit check: {str(e)}")
+        # If Redis is down, allow the request but log the error
+        return True, 0
+    except Exception as e:
+        logger.error(f"Error in rate limit check: {str(e)}")
+        # On any other error, allow the request but log the error
+        return True, 0
 
-        # Add new request
-        await redis_client.lpush(key, current_time)
-        await redis_client.expire(key, 60)  # Expire after 1 minute
-
-        return False
-
-rate_limiter = RateLimiter()
-
-async def rate_limit_middleware(request: Request, call_next):
-    client_id = request.client.host
-
-    if await rate_limiter.is_rate_limited(client_id):
-        return JSONResponse(
-            status_code=429,
-            content={
-                "error": "Too many requests",
-                "message": "Please try again in a minute"
-            }
-        )
-
-    response = await call_next(request)
-    return response 
+async def rate_limit_middleware(request: Request, call_next: Callable):
+    """Middleware to implement rate limiting."""
+    # Skip rate limiting for health check endpoints
+    if request.url.path in ["/api/health", "/api/redis-health"]:
+        return await call_next(request)
+    
+    try:
+        client_id = await get_client_identifier(request)
+        allowed, ttl = await check_rate_limit(client_id)
+        
+        if not allowed:
+            logger.warning(f"Rate limit exceeded for client {client_id}")
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={
+                    "status": "error",
+                    "message": "Rate limit exceeded",
+                    "details": f"Please try again in {ttl} seconds",
+                    "error_type": "rate_limit_exceeded",
+                    "retry_after": ttl,
+                    "timestamp": datetime.now().isoformat()
+                },
+                headers={"Retry-After": str(ttl)}
+            )
+        
+        # Add rate limit headers to response
+        response = await call_next(request)
+        response.headers["X-RateLimit-Limit"] = str(MAX_REQUESTS_PER_WINDOW)
+        response.headers["X-RateLimit-Remaining"] = str(MAX_REQUESTS_PER_WINDOW - int(await get_redis_connection().get(f"{RATE_LIMIT_KEY_PREFIX}{client_id}") or 0))
+        response.headers["X-RateLimit-Reset"] = str(int(time.time()) + ttl)
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error in rate limit middleware: {str(e)}")
+        # On any error, allow the request but log the error
+        return await call_next(request) 
