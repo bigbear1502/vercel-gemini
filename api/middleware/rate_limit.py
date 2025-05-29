@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Tuple, Callable
 import asyncio
-from redis_client import get_redis_connection, RedisError
+from ..redis_client import get_redis_connection, RedisError
 
 logger = logging.getLogger(__name__)
 
