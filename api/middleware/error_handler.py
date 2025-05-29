@@ -1,7 +1,7 @@
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from redis_client import RedisError
+from ..redis_client import RedisError
 import logging
 import traceback
 from typing import Callable
