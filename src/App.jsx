@@ -225,7 +225,9 @@ function App() {
     dontShowAgain: false
   });
   const [input, setInput] = useState('');
+  const [localMessages, setLocalMessages] = useState([]);
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -237,7 +239,14 @@ function App() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [conversations]);
+  }, [conversations, localMessages]);
+
+  // Keep input focused after sending message
+  useEffect(() => {
+    if (!isLoading && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isLoading]);
 
   const handleInputChange = (e) => {
     setInput(e.target.value);
@@ -252,6 +261,14 @@ function App() {
     setIsLoading(true);
     setError(null);
 
+    // Add user message immediately to local state
+    const userMessage = {
+      role: 'user',
+      content: message,
+      timestamp: new Date().toISOString()
+    };
+    setLocalMessages(prev => [...prev, userMessage]);
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -260,7 +277,7 @@ function App() {
         },
         body: JSON.stringify({
           message,
-          conversation_id: currentConversationId,
+          ...(currentConversationId && { conversation_id: currentConversationId })
         }),
       });
 
@@ -271,14 +288,28 @@ function App() {
       
       const data = await response.json();
       if (data.status === 'success' && data.conversation_id) {
+        // Add AI response to local state
+        const aiMessage = {
+          role: 'assistant',
+          content: data.response,
+          timestamp: new Date().toISOString()
+        };
+        setLocalMessages(prev => [...prev, aiMessage]);
+        
+        // Update conversation ID and refresh conversations
         setCurrentConversationId(data.conversation_id);
         await fetchConversations();
+        
+        // Clear local messages after successful save
+        setLocalMessages([]);
       } else {
         throw new Error('Invalid response from server');
       }
     } catch (err) {
       setError(err.message || 'Failed to send message. Please try again later.');
       console.error('Error sending message:', err);
+      // Remove the last message on error
+      setLocalMessages(prev => prev.slice(0, -1));
     } finally {
       setIsLoading(false);
     }
@@ -386,6 +417,12 @@ function App() {
     (conv) => conv.id === currentConversationId
   ) || { messages: [] };
 
+  // Combine conversation messages with local messages
+  const displayMessages = [
+    ...(currentConversationId ? currentConversation.messages : []),
+    ...localMessages
+  ];
+
   return (
     <div className="app-container">
       <ConversationList
@@ -455,7 +492,7 @@ function App() {
         </div>
 
         <div className="chat-messages">
-          {!currentConversationId || currentConversation.messages.length === 0 ? (
+          {!currentConversationId && displayMessages.length === 0 ? (
             <div className="empty-state">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
@@ -464,9 +501,9 @@ function App() {
             </div>
           ) : (
             <>
-              {currentConversation.messages.map((message, index) => (
+              {displayMessages.map((message, index) => (
                 <div 
-                  key={index} 
+                  key={`${message.role}-${index}-${message.timestamp}`}
                   className={`message ${message.role === 'user' ? 'user-message' : 'ai-message'}`}
                 >
                   <div className="message-avatar">
@@ -512,14 +549,33 @@ function App() {
         </div>
 
         <form onSubmit={handleSubmit} className="chat-input-form">
-          <input
-            type="text"
-            value={input}
-            onChange={handleInputChange}
-            placeholder="Type your message..."
-            disabled={isLoading}
-          />
-          <button type="submit" disabled={isLoading || input.trim() === ''}>
+          <div className="input-wrapper">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={handleInputChange}
+              placeholder={isLoading ? "Waiting for response..." : "Type your message..."}
+              disabled={isLoading}
+              autoFocus
+              className={isLoading ? "disabled" : ""}
+            />
+            {isLoading && (
+              <div className="input-loading-overlay">
+                <div className="loading-indicator">
+                  <div className="dot"></div>
+                  <div className="dot"></div>
+                  <div className="dot"></div>
+                </div>
+              </div>
+            )}
+          </div>
+          <button 
+            type="submit" 
+            disabled={isLoading || input.trim() === ''}
+            className={isLoading ? "disabled" : ""}
+            title={isLoading ? "Please wait for the response" : "Send message"}
+          >
             {isLoading ? (
               <svg className="loading-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
