@@ -132,40 +132,26 @@ async def chat_endpoint(request: ChatRequest):
         user_message = request.message
         conversation_id = request.conversation_id
         
-        # Get or create conversation
-        try:
-            if conversation_id:
+        # Get existing conversation if ID provided
+        conversation = None
+        if conversation_id:
+            try:
                 conversation = await get_conversation(conversation_id)
                 if not conversation:
                     raise HTTPException(status_code=404, detail="Conversation not found")
-            else:
-                conversation = {
-                    'id': None,
-                    'title': user_message[:30] + '...' if len(user_message) > 30 else user_message,
-                    'created_at': datetime.now().isoformat(),
-                    'updated_at': datetime.now().isoformat(),
-                    'messages': []
-                }
-        except RedisError as e:
-            logger.error(f"Redis error while getting conversation: {str(e)}")
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "status": "error",
-                    "message": "Failed to access conversation storage",
-                    "details": str(e),
-                    "error_type": "storage_error"
-                }
-            )
+            except RedisError as e:
+                logger.error(f"Redis error while getting conversation: {str(e)}")
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "status": "error",
+                        "message": "Failed to access conversation storage",
+                        "details": str(e),
+                        "error_type": "storage_error"
+                    }
+                )
         
-        # Add user message
-        conversation['messages'].append({
-            'role': 'user',
-            'content': user_message,
-            'timestamp': datetime.now().isoformat()
-        })
-        
-        # Generate AI response
+        # Generate AI response first
         try:
             model = get_available_model()
             response = model.generate_content(user_message)
@@ -174,14 +160,31 @@ async def chat_endpoint(request: ChatRequest):
             logger.error(f"Error generating response: {str(e)}\n{traceback.format_exc()}")
             response_text = "I apologize, but I'm currently experiencing technical difficulties. Please try again in a few moments."
         
-        # Add AI response
+        # Create or update conversation after getting AI response
+        if not conversation:
+            # Generate new conversation ID only after successful AI response
+            conversation_id = str(uuid.uuid4())
+            conversation = {
+                'id': conversation_id,
+                'title': user_message[:30] + '...' if len(user_message) > 30 else user_message,
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat(),
+                'messages': []
+            }
+        
+        # Add messages to conversation
+        conversation['messages'].append({
+            'role': 'user',
+            'content': user_message,
+            'timestamp': datetime.now().isoformat()
+        })
         conversation['messages'].append({
             'role': 'assistant',
             'content': response_text,
             'timestamp': datetime.now().isoformat()
         })
         
-        # Save conversation
+        # Save conversation to Redis
         try:
             await save_conversation(conversation)
         except RedisError as e:

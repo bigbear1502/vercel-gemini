@@ -264,13 +264,20 @@ function App() {
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to send message');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to send message');
+      }
       
       const data = await response.json();
-      setCurrentConversationId(data.conversation_id);
-      await fetchConversations();
+      if (data.status === 'success' && data.conversation_id) {
+        setCurrentConversationId(data.conversation_id);
+        await fetchConversations();
+      } else {
+        throw new Error('Invalid response from server');
+      }
     } catch (err) {
-      setError('Failed to send message. Please try again later.');
+      setError(err.message || 'Failed to send message. Please try again later.');
       console.error('Error sending message:', err);
     } finally {
       setIsLoading(false);
@@ -280,15 +287,16 @@ function App() {
   const fetchConversations = async () => {
     try {
       const response = await fetch('/api/conversations');
-      if (!response.ok) throw new Error('Failed to fetch conversations');
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        throw new SyntaxError("API returned non-JSON (HTML)");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to fetch conversations');
       }
       const data = await response.json();
-      setConversations(data.conversations || []);
+      // Handle both response formats (with status wrapper or direct array)
+      setConversations(Array.isArray(data) ? data : (data.conversations || []));
     } catch (err) {
       console.error("Error fetching conversations:", err);
+      setError(err.message || 'Failed to fetch conversations');
       setConversations([]);
     }
   };
@@ -296,15 +304,19 @@ function App() {
   const loadConversation = async (conversationId) => {
     try {
       const response = await fetch(`/api/conversations/${conversationId}`);
-      if (!response.ok) throw new Error("Failed to fetch conversation");
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        throw new SyntaxError("API returned non-JSON (HTML)");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to fetch conversation');
       }
       const data = await response.json();
-      setCurrentConversationId(conversationId);
+      if (data.id === conversationId) {
+        setCurrentConversationId(conversationId);
+      } else {
+        throw new Error('Invalid conversation data received');
+      }
     } catch (err) {
       console.error("Error loading conversation:", err);
+      setError(err.message || 'Failed to load conversation');
       setCurrentConversationId(null);
     }
   };
